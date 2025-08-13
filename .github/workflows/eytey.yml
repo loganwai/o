@@ -1,0 +1,118 @@
+name: 🚀 Super CI - Complex Workflow
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"  # Every 5 minutes
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+    inputs:
+      trigger_reason:
+        description: 'Reason for manual trigger'
+        required: false
+        default: 'Routine CI run'
+
+jobs:
+  build:
+    name: 🔨 Build & Test Matrix
+    env:
+      PY_COLORS: "1"
+      CI_MODE: "true"
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.13"]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: 🏁 Checkout repository
+      uses: actions/checkout@v4
+
+    - name: 🐍 Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: 🌎 Set Locale Environment
+      shell: bash
+      run: |
+        echo "::group::Locale Setup"
+        sudo apt-get update
+        sudo apt-get install tzdata locales -y
+        sudo locale-gen en_US.UTF-8
+        sudo localectl set-locale LANG="en_US.UTF-8"
+        export LANG="en_US.UTF-8"
+        sudo update-locale
+        locale -a
+        locale
+        locale -c -k LC_NUMERIC
+        localectl status
+        echo "::endgroup::"
+
+    - name: 📦 Install dependencies
+      shell: bash
+      run: |
+        echo "::group::Dependency Installation"
+        python -m pip install --upgrade pip
+        pip install --upgrade pip wheel
+        pip install --upgrade seleniumbase pyautogui pymongo python-xlib
+        echo "::endgroup::"
+
+    - name: 🧹 Lint with flake8
+      shell: bash
+      run: |
+        pip install flake8
+        # Uncomment below for strict linting
+        # flake8 . --count --show-source --statistics --exclude=temp
+
+    - name: 🧑‍💻 Install Chrome (conditional)
+      if: matrix.os == 'ubuntu-20.04'
+      shell: bash
+      run: |
+        sudo apt install google-chrome-stable
+
+    - name: 🖥️ Check console scripts interface
+      shell: bash
+      run: |
+        seleniumbase --help || true
+        sbase --help || true
+
+    - name: 🔌 Install chromedriver via SeleniumBase
+      shell: bash
+      run: |
+        seleniumbase install chromedriver
+
+    - name: ☁️ Install & Configure Cloudflare WARP
+      shell: bash
+      run: |
+        echo "::group::Cloudflare WARP Install"
+        sudo apt update
+        sudo apt install -y curl
+        curl https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --dearmor -o /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+        echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
+        sudo apt update
+        sudo apt install -y cloudflare-warp
+        sudo warp-cli --accept-tos registration new
+        sudo warp-cli --accept-tos connect
+        sleep 5
+        sudo warp-cli --accept-tos status
+        echo "::endgroup::"
+
+    - name: 🐍 Run Python Script (o.py)
+      shell: bash
+      run: |
+        echo "::group::Python Script Execution"
+        python o.py --debug --chrome --xvfb --screenshot
+        echo "::endgroup::"
+
+    - name: 🖼️ Upload SeleniumBase Screenshots
+      uses: actions/upload-artifact@v4
+      with:
+        name: seleniumbase-screenshots
+        path: |
+          ./latest_logs/
